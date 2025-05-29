@@ -3,32 +3,34 @@ package service
 import (
 	"context"
 	"errors"
-	stdHTTP "net/http"
-
 	"github.com/labstack/echo/v4"
-
+	stdHTTP "net/http"
 	ticketsHttp "tickets/http"
+	"tickets/worker"
 )
 
 type Service struct {
 	echoRouter *echo.Echo
+	worker     *worker.Worker
 }
 
 func New(
-	spreadsheetsService ticketsHttp.SpreadsheetsAPI,
-	receiptsService ticketsHttp.ReceiptsService,
+	spreadsheetsService worker.SpreadsheetsAPI,
+	receiptsService worker.ReceiptsService,
 ) Service {
-	echoRouter := ticketsHttp.NewHttpRouter(spreadsheetsService, receiptsService)
+	w := worker.NewWorker(spreadsheetsService, receiptsService)
+	echoRouter := ticketsHttp.NewHttpRouter(w)
 	return Service{
 		echoRouter: echoRouter,
+		worker:     w,
 	}
 }
 
 func (s Service) Run(ctx context.Context) error {
+	go s.worker.Run()
 	err := s.echoRouter.Start(":8080")
 	if err != nil && !errors.Is(err, stdHTTP.ErrServerClosed) {
 		return err
 	}
-
 	return nil
 }

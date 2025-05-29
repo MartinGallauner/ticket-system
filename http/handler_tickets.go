@@ -1,9 +1,9 @@
 package http
 
 import (
-	"net/http"
-
 	"github.com/labstack/echo/v4"
+	"net/http"
+	"tickets/worker"
 )
 
 type ticketsConfirmationRequest struct {
@@ -18,15 +18,17 @@ func (h Handler) PostTicketsConfirmation(c echo.Context) error {
 	}
 
 	for _, ticket := range request.Tickets {
-		err = h.receiptsService.IssueReceipt(c.Request().Context(), ticket)
-		if err != nil {
-			return err
-		}
+		h.worker.Send(
+			worker.Message{
+				Task:     0,
+				TicketID: ticket,
+			},
+			worker.Message{
+				Task:     1,
+				TicketID: ticket,
+			},
+		)
 
-		err = h.spreadsheetsAPI.AppendRow(c.Request().Context(), "tickets-to-print", []string{ticket})
-		if err != nil {
-			return err
-		}
 	}
 
 	return c.NoContent(http.StatusOK)
