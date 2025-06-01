@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"os"
+	"tickets/message"
 
 	"github.com/ThreeDotsLabs/go-event-driven/v2/common/clients"
 	"github.com/ThreeDotsLabs/go-event-driven/v2/common/log"
@@ -20,15 +21,16 @@ func main() {
 		panic(err)
 	}
 
+	redisClient := message.NewRedisClient(os.Getenv("REDIS_ADDR"))
+	defer redisClient.Close()
+
 	spreadsheetsService := adapters.NewSpreadsheetsAPIClient(apiClients)
 	receiptsService := adapters.NewReceiptsServiceClient(apiClients)
 
-	err = service.New(
-		spreadsheetsService,
-		receiptsService,
-	).Run(context.Background())
+	//go message.NewHandler(receiptsService, spreadsheetsService)
+
+	err = service.New(redisClient, spreadsheetsService, receiptsService).Run(context.Background())
 	if err != nil {
 		panic(err)
 	}
-
 }

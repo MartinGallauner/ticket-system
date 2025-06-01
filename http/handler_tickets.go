@@ -1,16 +1,17 @@
 package http
 
 import (
+	"github.com/ThreeDotsLabs/watermill"
+	"github.com/ThreeDotsLabs/watermill/message"
 	"github.com/labstack/echo/v4"
 	"net/http"
-	"tickets/worker"
 )
 
 type ticketsConfirmationRequest struct {
 	Tickets []string `json:"tickets"`
 }
 
-func (h Handler) PostTicketsConfirmation(c echo.Context) error {
+func (h *Handler) PostTicketsConfirmation(c echo.Context) error {
 	var request ticketsConfirmationRequest
 	err := c.Bind(&request)
 	if err != nil {
@@ -18,18 +19,17 @@ func (h Handler) PostTicketsConfirmation(c echo.Context) error {
 	}
 
 	for _, ticket := range request.Tickets {
-		h.worker.Send(
-			worker.Message{
-				Task:     0,
-				TicketID: ticket,
-			},
-			worker.Message{
-				Task:     1,
-				TicketID: ticket,
-			},
-		)
 
+		msg := message.NewMessage(watermill.NewUUID(), []byte(ticket))
+		err := h.publisher.Publish("issue-receipt", msg)
+		if err != nil {
+			return err
+		}
+
+		err = h.publisher.Publish("append-to-tracker", msg)
+		if err != nil {
+			return err
+		}
 	}
-
 	return c.NoContent(http.StatusOK)
 }
