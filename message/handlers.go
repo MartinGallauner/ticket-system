@@ -2,17 +2,22 @@ package message
 
 import (
 	"context"
+
 	"github.com/ThreeDotsLabs/watermill"
 	"github.com/ThreeDotsLabs/watermill-redisstream/pkg/redisstream"
+	"github.com/ThreeDotsLabs/watermill/message"
 	"github.com/redis/go-redis/v9"
 )
 
-func NewHandler(
+func NewRouter(
 	receiptsClient ReceiptsService,
-	spreadsheetsClient SpreadsheetsAPI,
+	spreadsheetClient SpreadsheetsAPI,
 	rdb *redis.Client,
 	logger watermill.LoggerAdapter,
-) {
+) *message.Router {
+
+	router := message.NewDefaultRouter(logger)
+
 	receiptsSub, err := redisstream.NewSubscriber(redisstream.SubscriberConfig{
 		Client:        rdb,
 		ConsumerGroup: "issue-receipt",
@@ -29,8 +34,23 @@ func NewHandler(
 		panic(err)
 	}
 
-	go processReceipt(receiptsSub, receiptsClient.IssueReceipt)
-	go processSpreadsheet(spreadsheetSub, spreadsheetsClient.AppendRow)
+	router.AddNoPublisherHandler(
+		"issue-receipt-handler",
+		"issue-receipt",
+		receiptsSub,
+		func(msg *message.Message) error {
+			return receiptsClient.IssueReceipt(msg.Context(), string(msg.Payload))
+	})
+
+	router.AddNoPublisherHandler(
+		"append-to-tracker-handler",
+		"append-to-tracker",
+		spreadsheetSub,
+		func(msg *message.Message) error {
+			return spreadsheetClient.AppendRow(msg.Context(), "tickets-to-print", []string{string(msg.Payload)})
+		})
+
+	return router
 }
 
 type SpreadsheetsAPI interface {
