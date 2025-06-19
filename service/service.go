@@ -5,6 +5,8 @@ import (
 	"errors"
 	"log/slog"
 	stdHTTP "net/http"
+	"os"
+	"os/signal"
 	ticketsHttp "tickets/http"
 	"tickets/message"
 
@@ -12,7 +14,9 @@ import (
 	m2 "github.com/ThreeDotsLabs/watermill/message"
 	"github.com/labstack/echo/v4"
 	"github.com/redis/go-redis/v9"
+	"golang.org/x/sync/errgroup"
 )
+
 
 type Service struct {
 	echoRouter *echo.Echo
@@ -34,15 +38,32 @@ func New(redisClient *redis.Client, spreadsheetservcie message.SpreadsheetsAPI, 
 
 func (s Service) Run(ctx context.Context) error {
 
-	go func() {
-		if err := s.router.Run(ctx); err != nil {
-			panic(err)
-		}
-	}()
+	ctx, cancel := signal.NotifyContext(ctx, os.Interrupt)
+	defer cancel()
 
-	err := s.echoRouter.Start(":8080")
-	if err != nil && !errors.Is(err, stdHTTP.ErrServerClosed) {
+	group, ctx := errgroup.WithContext(ctx)
+
+	group.Go(func() error { //start watermill router
+		return s.router.Run(ctx)
+	})
+
+	group.Go(func() error { //start http server
+		err := s.echoRouter.Start(":8080")
+		if err != nil && !errors.Is(err, stdHTTP.ErrServerClosed) {
+			return err
+		}
+		return nil
+	})
+
+	group.Go(func() error {
+		<- ctx.Done()
+		return s.echoRouter.Shutdown(ctx)
+	})
+
+	err := group.Wait()
+	if err != nil {
 		return err
 	}
 	return nil
+
 }
