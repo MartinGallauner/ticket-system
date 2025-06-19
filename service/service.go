@@ -48,6 +48,7 @@ func (s Service) Run(ctx context.Context) error {
 	})
 
 	group.Go(func() error { //start http server
+		<-s.router.Running()
 		err := s.echoRouter.Start(":8080")
 		if err != nil && !errors.Is(err, stdHTTP.ErrServerClosed) {
 			return err
