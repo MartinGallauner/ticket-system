@@ -1,6 +1,7 @@
 package http
 
 import (
+	"encoding/json"
 	"github.com/ThreeDotsLabs/watermill"
 	"github.com/ThreeDotsLabs/watermill/message"
 	"github.com/labstack/echo/v4"
@@ -25,15 +26,26 @@ func (h *Handler) PostTicketsStatus(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-
 	for _, ticket := range request.Tickets {
-
 		msg := message.NewMessage(watermill.NewUUID(), []byte(ticket.TicketID))
 		err := h.publisher.Publish("issue-receipt", msg)
 		if err != nil {
 			return err
 		}
+		payload := entities.AppendToTrackerPayload{
+			TicketID:      ticket.TicketID,
+			CustomerEmail: ticket.CustomerEmail,
+			Price: entities.Money{
+				Amount:   ticket.Price.Amount,
+				Currency: ticket.Price.Currency,
+			},
+		}
+		marshalledPayload, err := json.Marshal(payload)
+		if err != nil {
+			return err
+		}
 
+		msg = message.NewMessage(watermill.NewUUID(), []byte(marshalledPayload))
 		err = h.publisher.Publish("append-to-tracker", msg)
 		if err != nil {
 			return err

@@ -2,6 +2,8 @@ package message
 
 import (
 	"context"
+	"encoding/json"
+	"tickets/entities"
 
 	"github.com/ThreeDotsLabs/watermill"
 	"github.com/ThreeDotsLabs/watermill-redisstream/pkg/redisstream"
@@ -40,14 +42,25 @@ func NewRouter(
 		receiptsSub,
 		func(msg *message.Message) error {
 			return receiptsClient.IssueReceipt(msg.Context(), string(msg.Payload))
-	})
+		})
 
 	router.AddNoPublisherHandler(
 		"append-to-tracker-handler",
 		"append-to-tracker",
 		spreadsheetSub,
 		func(msg *message.Message) error {
-			return spreadsheetClient.AppendRow(msg.Context(), "tickets-to-print", []string{string(msg.Payload)})
+
+			var payload entities.AppendToTrackerPayload
+			err := json.Unmarshal(msg.Payload, &payload)
+			if err != nil {
+				return err
+			}
+
+			return spreadsheetClient.AppendRow(
+				msg.Context(),
+				"tickets-to-print",
+				[]string{string(payload.TicketID), payload.CustomerEmail, payload.Price.Amount, payload.Price.Currency},
+			)
 		})
 
 	return router
