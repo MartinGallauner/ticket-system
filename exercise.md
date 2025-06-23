@@ -1,42 +1,80 @@
-# Project: Health checks
+# Project: Append more details to the spreadsheet
 
-You can now control how the service shuts down. Another good practice is being able to tell when it's up and ready to serve requests.
+As mentioned in the previous exercise, the Operations team has asked us to add the customer's email and the price to the spreadsheet.
+The spreadsheet format they want looks like this:
 
-The simple, common way to do this is to expose an HTTP endpoint like `/health` that returns a 200 status code once the service is ready.
+|          |                   |        |     |
+|----------|-------------------|--------|-----|
+| ticket-1 | user@example.com  | 50.00  | EUR |
+| ticket-2 | user2@example.com | 100.00 | USD |
 
-Here's an example using Echo:
 
-```go
-e.GET("/health", func(c echo.Context) error {
-	return c.String(http.StatusOK, "ok")
-})
+First, we need these details in the messages we publish to the Pub/Sub topics.
+We still want to publish two messages per ticket: one for issuing a receipt and one for appending it to the spreadsheet.
+
+Let's update the message sent to the `append-to-tracker` topic to include the customer's email and the price.
+
+The data sent to the `append-to-tracker` topic should have the following format:
+
+```json
+{
+  "ticket_id": "ticket-1",
+  "customer_email": "user@example.com",
+  "price": {
+    "amount": "50.00",
+    "currency": "EUR"
+  }
+}
 ```
 
-The Router exposes a `Running` method. It returns a channel that gets closed once the Router is ready.
-You can use it like this:
+The Go struct for the payload can look like this:
 
 ```go
-<-router.Running()
+type AppendToTrackerPayload struct {
+    TicketID      string `json:"ticket_id"`
+    CustomerEmail string `json:"customer_email"`
+    Price         Money  `json:"price"`
+}
+
+type Money struct {
+    Amount   string `json:"amount"`
+    Currency string `json:"currency"`
+}
 ```
+
+**You can keep this struct in the `entities` package.**
+You will use it in both the HTTP handler and the message handler.
+
+{{tip}}
+
+For simplicity, in the example solution we reuse the `Money` entity for both HTTP requests and message payloads.
+
+But it's not always the best idea.
+It can lead to tight coupling between different parts of the system.
+
+You can read more about it in [When to avoid DRY in Go](https://threedots.tech/post/things-to-know-about-dry/).
+
+{{endtip}}
 
 {{.Exercise}}
 
-**Implement a health check endpoint in your project.**
+1. **Extend the message published to the `append-to-tracker` topic to include the customer's email and the price.**
 
-1. Expose an HTTP `GET /health` endpoint that returns a `200` status code and an `ok` message.
+In the HTTP handler, marshal the struct to JSON and publish it as the message payload.
 
-2. Extend your service code, so it waits for the Router to be ready before starting the HTTP server.
-This way, the service is marked as healthy only when the Router is ready to process messages.
+2. **Update the message handler so that it unmarshalls the payload into the struct.**
 
-```go
-g.Go(func() error {
-	<-router.Running()
-	
-	err := e.Start(":8080")
-	if err != nil && !errors.Is(err, stdHTTP.ErrServerClosed) {
-		return err
-	}
-	
-	return nil
-})
+Add extra fields to the spreadsheet:
+
+```diff
+ 	return spreadsheetsAPI.AppendRow(
+		ctx,
+ 		"tickets-to-print",
+-		[]string{string(msg.Payload)},
++		[]string{payload.TicketID, payload.CustomerEmail, payload.Price.Amount, payload.Price.Currency},
+ 	)
+ },
 ```
+
+For now, keep the message sent to `issue-receipt` as-is.
+We'll update it in the next exercise.

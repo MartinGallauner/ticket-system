@@ -15,7 +15,7 @@ func NewHttpRouter(p message.Publisher) *echo.Echo {
 		p,
 	}
 
-	e.POST("/tickets-confirmation", handler.PostTicketsConfirmation)
+	e.POST("/tickets-status", handler.PostTicketsStatus)
 	e.GET("/health", func(c echo.Context) error {
 		return c.String(http.StatusOK, "ok")
 	})
