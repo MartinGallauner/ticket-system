@@ -27,20 +27,33 @@ func (h *Handler) PostTicketsStatus(c echo.Context) error {
 		return err
 	}
 	for _, ticket := range request.Tickets {
-		msg := message.NewMessage(watermill.NewUUID(), []byte(ticket.TicketID))
-		err := h.publisher.Publish("issue-receipt", msg)
+
+		price := entities.Money{
+			Amount:   ticket.Price.Amount,
+			Currency: ticket.Price.Currency,
+		}
+
+		payloadIssueMsg := entities.IssueReceiptPayload{
+			TicketID: ticket.TicketID,
+			Price:    price,
+		}
+
+		marshalledPayload, err := json.Marshal(payloadIssueMsg)
+		if err != nil {
+			return err
+		}
+
+		msg := message.NewMessage(watermill.NewUUID(), marshalledPayload)
+		err = h.publisher.Publish("issue-receipt", msg)
 		if err != nil {
 			return err
 		}
 		payload := entities.AppendToTrackerPayload{
 			TicketID:      ticket.TicketID,
 			CustomerEmail: ticket.CustomerEmail,
-			Price: entities.Money{
-				Amount:   ticket.Price.Amount,
-				Currency: ticket.Price.Currency,
-			},
+			Price:         price,
 		}
-		marshalledPayload, err := json.Marshal(payload)
+		marshalledPayload, err = json.Marshal(payload)
 		if err != nil {
 			return err
 		}

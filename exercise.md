@@ -1,75 +1,109 @@
-# Project: Send price to the Receipts service
+# Project: Migrate to Events
 
-{{background}}
+Perhaps you noticed that the current messages in the project aren't events.
+It's not a problem, though. We can now migrate to events and get the benefits of using them.
 
-Since we are already appending the ticket price to the spreadsheet, 
-the Finance team has asked us to also use it when issuing receipts.
+In the current form, our webhook handler knows much of what happens outside of it.
+It publishes a message for each action that needs to happen (issuing a receipt or appending the ticket to the tracker).
+This is not a big deal right now, but handlers like this tend to grow and become hard to change.
+We also lose many benefits that using events brings.
 
-How did they know the price before? Good question...
-But it makes sense to send it since we have it now.
+We can easily improve this by replacing both messages with a proper event.
 
-{{endbackground}}
+Let's recap {{exerciseLink "the beginning" "05-events" "01-events"}} of the module.
+Here's what you need to keep in mind about events:
 
-We need to extend the message sent to the `issue-receipt` topic to include the price.
-It should look like this:
-
-```json
-{
-    "ticket_id": "ticket-1",
-    "price": {
-      "amount": "50.00",
-      "currency": "EUR"
-  }
-}
-```
-
-You can use a Go struct like this:
-
-```go
-type IssueReceiptPayload struct {
-    TicketID string `json:"ticket_id"`
-    Price    Money  `json:"price"`
-}
-```
+- They're facts: They describe something that already happened.
+- They're immutable: Once published, they can't be changed.
+- They should be expressed as verbs in past tense, like `UserSignedUp`, `OrderPlaced`, or `AlarmTriggered`.
 
 {{.Exercise}}
 
-1. Update the HTTP handler, to publish JSON payload on the `issue-receipt` topic in the format above.
+1. **Publish the event.**
 
-2. Update the message handler so that it unmarshals the payload on the struct.
+Instead of two messages published on the `issue-receipt` and `append-ticket` topics,
+make the HTTP handler **publish a single `TicketBookingConfirmed` event on the `TicketBookingConfirmed` topic.**
 
-3. Modify the receipts client so that it can accept a price. It might look like this:
-
-```go
-func (c ReceiptsClient) IssueReceipt(ctx context.Context, request entities.IssueReceiptRequest) error {
-```
-
-It's a good practice to not import the `adapters` package in other packages.
-You can keep the `IssueReceiptRequest` struct in `entities`:
+The event should have the following form:
 
 ```go
-type IssueReceiptRequest struct {
-    TicketID string
-    Price    Money
+type TicketBookingConfirmed struct {
+	Header MessageHeader `json:"header"`
+
+	TicketID      string `json:"ticket_id"`
+	CustomerEmail string `json:"customer_email"`
+	Price         Money  `json:"price"`
 }
 ```
 
-Next, include the price in the `Receipts.PutReceiptsWithResponse`:
+The header can look like this:
 
-```diff
-resp, err := c.clients.Receipts.PutReceiptsWithResponse(ctx, receipts.CreateReceipt{
--	TicketId: ticketID,
-+	TicketId: request.TicketID,
-+	Price: receipts.Money{
-+		MoneyAmount:   request.Price.Amount,
-+		MoneyCurrency: request.Price.Currency,
-+	},
-})
+```go
+type MessageHeader struct {
+	ID          string    `json:"id"`
+	PublishedAt time.Time `json:"published_at"`
+}
+
+func NewMessageHeader() MessageHeader {
+	return MessageHeader{
+		ID:          uuid.NewString(),
+		PublishedAt: time.Now().UTC(),
+	}
+}
 ```
+
+2. **Update the Router handlers to subscribe to the `TicketBookingConfirmed` topic.**
+
+Unmarshal the event payload into the `TicketBookingConfirmed` struct.
+It has all required details to issue a receipt and append the ticket to the tracker.
 
 {{tip}}
 
-Note that there are two `Money` types: one comes from the HTTP request, and the other from the `receipts` package.
-This is correct. It's a common situation when integrating with external systems that the data formats are slightly different.
+Important: **You need two subscribers, each with a unique consumer group, just like in the {{exerciseLink "consumer groups exercise" "03-message-broker" "05-consumer-groups"}}.**
+Otherwise, only one handler would receive each event.
+
+{{endtip}}
+
+{{tip}}
+
+We'll add more event-based features in the upcoming modules.
+This might be a good moment to refactor and move event handlers into their own files (similar to how the HTTP router is organized in the example solution).
+
+It could look like this:
+
+```go
+// message/event/handler.go
+
+type Handler struct {
+	spreadsheetsAPI SpreadsheetsAPI
+	receiptsService ReceiptsService
+}
+
+// message/event/append_to_tracker.go
+
+func (h Handler) AppendToTracker(ctx context.Context, event entities.TicketBookingConfirmed) error {
+    slog.Info("Appending ticket to the tracker")
+    // ...
+}
+
+// message/router.go
+
+router.AddNoPublisherHandler(
+		"append_to_tracker",
+		"TicketBookingConfirmed",
+		appendToTrackerSub,
+		func(msg *message.Message) error {
+			var event entities.TicketBookingConfirmed
+			err := json.Unmarshal(msg.Payload, &event)
+			if err != nil {
+				return err
+			}
+
+			return handler.AppendToTracker(msg.Context(), event)
+		},
+	)
+```
+
+It's optional, but it can help you keep the code organized as the project grows.
 
 {{endtip}}

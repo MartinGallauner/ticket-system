@@ -41,7 +41,12 @@ func NewRouter(
 		"issue-receipt",
 		receiptsSub,
 		func(msg *message.Message) error {
-			return receiptsClient.IssueReceipt(msg.Context(), string(msg.Payload))
+			var payload entities.IssueReceiptPayload
+			err := json.Unmarshal(msg.Payload, &payload)
+			if err != nil {
+				return err
+			}
+			return receiptsClient.IssueReceipt(msg.Context(), payload)
 		})
 
 	router.AddNoPublisherHandler(
@@ -71,5 +76,5 @@ type SpreadsheetsAPI interface {
 }
 
 type ReceiptsService interface {
-	IssueReceipt(ctx context.Context, ticketID string) error
+	IssueReceipt(ctx context.Context, request entities.IssueReceiptPayload) error
 }
