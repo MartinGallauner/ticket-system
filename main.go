@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"github.com/joho/godotenv"
 	"log/slog"
 	"os"
 	"tickets/message"
@@ -15,6 +16,11 @@ import (
 
 func main() {
 	log.Init(slog.LevelInfo)
+
+	err := godotenv.Load(".env")
+	if err != nil {
+		slog.Error("Error loading .env file")
+	}
 
 	apiClients, err := clients.NewClients(os.Getenv("GATEWAY_ADDR"), nil)
 	if err != nil {
